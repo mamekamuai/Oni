@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>青屋敷からの脱出</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{width:100%;height:100%;background:#000;overflow:hidden;touch-action:none;-webkit-tap-highlight-color:transparent;font-family:monospace;}
+canvas{display:block;image-rendering:pixelated;position:fixed;top:0;left:0;}
+#hud{position:fixed;top:0;left:0;right:0;height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;background:rgba(0,0,0,0.85);color:#ccc;font-size:12px;z-index:20;border-bottom:1px solid #2a2a2a;}
+#slots{position:fixed;right:6px;top:32px;display:flex;flex-direction:column;gap:4px;z-index:20;pointer-events:none;}
+.slot{width:30px;height:30px;background:rgba(0,0,0,0.75);border:1px solid #444;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:16px;}
+#msg{position:fixed;top:32px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.93);color:#d4b896;padding:6px 14px;border:1px solid #4a3a2a;border-radius:3px;font-size:12px;text-align:center;max-width:300px;z-index:20;pointer-events:none;white-space:pre-line;display:none;line-height:1.6;}
+#dpad{position:fixed;bottom:14px;left:14px;width:116px;height:116px;z-index:20;}
+#dpad button{position:absolute;width:38px;height:38px;background:rgba(20,20,20,0.82);border:1px solid rgba(120,120,120,0.5);color:#999;font-size:18px;cursor:pointer;touch-action:none;border-radius:6px;user-select:none;}
+#bu{top:0;left:39px;}#bd{bottom:0;left:39px;}#bl{top:39px;left:0;}#br{top:39px;right:0;}
+#abtn{position:fixed;bottom:18px;right:46px;width:60px;height:60px;border-radius:50%;background:rgba(60,30,8,0.88);border:2px solid rgba(160,100,30,0.7);color:#cc9;font-size:11px;cursor:pointer;z-index:20;touch-action:none;user-select:none;}
+#fade{position:fixed;inset:0;background:#000;z-index:50;pointer-events:none;opacity:0;transition:opacity 0.3s;}
+
+/* 謎解きUI */
+#puzzleUI{position:fixed;inset:0;background:rgba(0,0,0,0.88);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:150;color:#d4b896;}
+#puzzleUI h2{font-size:16px;letter-spacing:2px;color:#c8a060;border-bottom:1px solid #4a3a2a;padding-bottom:8px;}
+#puzzleUI p{font-size:12px;color:#999;text-align:center;line-height:1.7;max-width:280px;}
+#puzzleInput{font-size:24px;letter-spacing:8px;color:#fff;background:#111;border:1px solid #555;border-radius:4px;padding:8px 16px;text-align:center;width:160px;}
+#puzzleButtons{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}
+#puzzleButtons button{padding:8px 12px;background:#1a1a1a;border:1px solid #555;color:#ccc;font-size:14px;border-radius:4px;cursor:pointer;min-width:44px;}
+#puzzleButtons button:active{background:#333;}
+#puzzleClose{padding:8px 24px;background:#2a1500;border:1px solid #554400;color:#aa8830;font-size:12px;border-radius:4px;cursor:pointer;}
+
+/* オーバーレイ */
+#ov{position:fixed;inset:0;background:rgba(0,0,0,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:200;color:#fff;text-align:center;}
+#ov h1{font-size:22px;color:#cc2222;text-shadow:0 0 24px #f00;letter-spacing:3px;}
+#ov h2{font-size:18px;color:#55cc33;letter-spacing:2px;}
+#ov p{font-size:12px;color:#999;line-height:1.9;max-width:340px;}
+#ov button{padding:10px 28px;background:#1a1a1a;border:1px solid #555;color:#ccc;font-size:13px;border-radius:4px;cursor:pointer;letter-spacing:2px;}
+</style>
+</head>
+<body>
+<div id="hud"><span id="roomName">青屋敷</span><span id="alertTxt">🗝️ 0/3</span></div>
+<div id="slots"><div class="slot" id="s0"> </div><div class="slot" id="s1"> </div><div class="slot" id="s2"> </div></div>
+<canvas id="c"></canvas>
+<div id="msg"></div>
+<div id="dpad">
+  <button id="bu">▲</button><button id="bl">◀</button>
+  <button id="br">▶</button><button id="bd">▼</button>
+</div>
+<button id="abtn">調べる</button>
+<div id="fade"></div>
+
+<!-- 謎解きUI -->
+<div id="puzzleUI">
+  <h2 id="puzzleTitle">謎解き</h2>
+  <p id="puzzleDesc"></p>
+  <div id="puzzleContent"></div>
+  <button id="puzzleClose" onclick="closePuzzle()">閉じる</button>
+</div>
+
+<div id="ov">
+  <h1>青屋敷からの脱出</h1>
+  <p>古びた屋敷に迷い込んでしまった。<br>
+  🗝️ 3つの鍵を集めて地下室から脱出しろ。<br>
+  <span style="color:#ff8888">青いあいつ</span>に見つかるな。<br><br>
+  部屋の端に近づくと自動で移動する。<br>
+  ロッカー・机の下に「調べる」で隠れられる。</p>
+  <button id="startBtn">ゲーム開始</button>
+</div>
+
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+const T=40;
+const _=0,W=1,DR=2,DL=3,DU=4,DD=5,LK=6,EX=7,TL=8,PT=9,BK=10;
+// PT=絵画 BK=本棚
+
+// ===== 謎解きデータ =====
+// 玄関の絵画に隠された数字→4桁コード(寝室パズルのヒント)
+const SECRET_CODE='3691';
+// 書斎の本の正しい順番
+const BOOK_ORDER=['赤','青','緑'];
+
+const ROOMS=[
+  // 0: 玄関ホール
+  {name:'玄関ホール',w:18,h:12,
+   map:[
+    [W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,LK,_,_,_,_,_,_,_,_,_,_,_,_,LK,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,PT,_,_,_,_,_,_,_,_,_,_,_,_,_,_,PT,W],
+    [W,_,_,_,_,TL,TL,_,_,_,_,TL,TL,_,_,_,_,W],
+    [W,_,_,_,_,TL,TL,_,_,_,_,TL,TL,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,W,W,W,W,DD,W,W,W,W,W,W,W,DD,W,W,W,W],
+   ],
+   exits:[
+    {side:'bottom',x1:4,x2:6,toRoom:1,sx:5,sy:1},
+    {side:'bottom',x1:12,x2:14,toRoom:2,sx:8,sy:1},
+   ],
+   playerStart:{x:9,y:5},enemyStart:null,
+   items:[{tx:8,ty:9,e:'📜',n:'古い手紙',id:'letter'}],
+   // 調べられるオブジェクト
+   objects:[
+    {tx:0,ty:4,type:'painting',label:'左の絵画',hint:'絵画に「3」と書かれている'},
+    {tx:17,ty:4,type:'painting',label:'右の絵画',hint:'絵画に「69」と書かれている…\n合わせると「369_」？'},
+   ],
+  },
+  // 1: 廊下
+  {name:'廊　下',w:18,h:12,
+   map:[
+    [W,W,W,W,W,DU,W,W,W,W,W,W,W,W,W,W,W,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,LK,_,_,_,_,_,_,_,_,_,_,_,_,_,_,LK,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,W,DD,W,W,W,W,W,W,DD,W,W,W,W,W,DD,W,W],
+   ],
+   exits:[
+    {side:'top',x1:4,x2:6,toRoom:0,sx:5,sy:10},
+    {side:'bottom',x1:1,x2:3,toRoom:3,sx:8,sy:1},
+    {side:'bottom',x1:8,x2:10,toRoom:4,sx:8,sy:1},
+    {side:'bottom',x1:14,x2:16,toRoom:5,sx:4,sy:4},
+   ],
+   playerStart:{x:9,y:5},enemyStart:{x:14,y:7},
+   items:[],objects:[],
+  },
+  // 2: 書斎
+  {name:'書　斎',w:18,h:12,
+   map:[
+    [W,W,W,W,W,W,W,W,DU,W,W,W,W,W,W,W,W,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,BK,BK,BK,BK,_,_,_,_,_,_,_,BK,BK,BK,BK,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,LK,_,_,_,_,_,_,_,_,_,LK,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,TL,TL,TL,_,_,_,TL,TL,TL,_,_,_,W],
+    [W,_,_,_,_,TL,TL,TL,_,_,_,TL,TL,TL,_,_,_,W],
+    [W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W],
+   ],
+   exits:[
+    {side:'top',x1:7,x2:9,toRoom:0,sx:13,sy:10},
+   ],
+   playerStart:{x:9,y:6},enemyStart:null,
+   items:[{tx:8,ty:4,e:'📓',n:'日記帳',id:'diary'}],
+   objects:[
+    {tx:1,ty:2,type:'bookshelf',label:'左の本棚',id:'shelf_left'},
+    {tx:14,ty:2,type:'bookshelf',label:'右の本棚',id:'shelf_right'},
+   ],
+  },
+  // 3: 寝室
+  {name:'寝　室',w:18,h:12,
+   map:[
+    [W,W,W,DU,W,W,W,W,W,W,W,W,W,W,W,W,W,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,TL,TL,_,_,_,_,_,_,_,_,_,TL,TL,_,_,W],
+    [W,_,TL,TL,_,_,_,_,_,_,_,_,_,TL,TL,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,LK,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,PT,_,_,_,_,_,_,_,_,PT,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,W],
+   ],
+   exits:[
+    {side:'top',x1:2,x2:4,toRoom:1,sx:2,sy:10},
+   ],
+   playerStart:{x:9,y:6},enemyStart:null,
+   items:[{tx:11,ty:7,e:'🔦',n:'懐中電灯',id:'light'}],
+   objects:[
+    {tx:4,ty:8,type:'safe',label:'金庫',id:'safe'},
+   ],
+  },
+  // 4: 地下室
+  {name:'地下室',w:18,h:12,
+   map:[
+    [W,W,W,W,W,W,W,W,W,DU,W,W,W,W,W,W,W,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,LK,_,_,_,_,_,_,_,_,_,_,_,_,LK,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,_,W],
+    [W,W,W,W,W,W,W,W,W,W,W,W,W,W,W,EX,W,W],
+   ],
+   exits:[
+    {side:'top',x1:8,x2:10,toRoom:1,sx:9,sy:10},
+    {side:'bottom',x1:14,x2:16,toRoom:-1,sx:0,sy:0},
+   ],
+   playerStart:{x:9,y:5},enemyStart:{x:9,y:9},
+   items:[],objects:[],
+  },
+  // 5: 隠し部屋
+  {name:'隠し部屋',w:12,h:10,
+   map:[
+    [W,W,W,W,W,W,W,W,W,W,W,W],
+    [W,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,LK,_,_,_,_,_,LK,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,W],
+    [W,DR,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,PT,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,W],
+    [W,_,_,_,_,_,_,_,_,_,_,W],
+    [W,W,W,W,W,W,W,W,W,W,W,W],
+   ],
+   exits:[
+    {side:'left',y1:3,y2:5,toRoom:1,sx:15,sy:10},
+   ],
+   playerStart:{x:6,y:4},enemyStart:null,
+   items:[{tx:7,ty:3,e:'🕯️',n:'ろうそく',id:'candle'}],
+   objects:[
+    {tx:5,ty:5,type:'cipher',label:'暗号板',id:'cipher'},
+   ],
+  },
+];
+
+// ===== 謎解き状態 =====
+let PUZZLE={
+  bookOrder:[],        // 書斎: 押した本の順番
+  safeUnlocked:false,  // 寝室: 金庫解錠済み
+  cipherSolved:false,  // 隠し部屋: 暗号解読済み
+  bookSolved:false,    // 書斎: 本棚解決済み
+};
+
+// ===== ユーティリティ =====
+function tileAt(room,tx,ty){tx=Math.floor(tx);ty=Math.floor(ty);if(tx<0||ty<0||tx>=room.w||ty>=room.h)return W;return room.map[ty][tx];}
+function walkable(room,tx,ty){const t=tileAt(room,tx,ty);return t!==W&&t!==TL&&t!==BK;}
+function dst(ax,ay,bx,by){return Math.sqrt((ax-bx)**2+(ay-by)**2);}
+
+// ===== 入力 =====
+const INPUT={x:0,y:0};
+const KEYS={};
+window.addEventListener('keydown',e=>{KEYS[e.key]=true;if(e.key===' '||e.key==='Enter'){e.preventDefault();doAction();}});
+window.addEventListener('keyup',e=>{KEYS[e.key]=false;});
+(function(){
+  const dirs={bu:{x:0,y:-1},bd:{x:0,y:1},bl:{x:-1,y:0},br:{x:1,y:0}};
+  Object.entries(dirs).forEach(([id,d])=>{
+    const b=document.getElementById(id);
+    b.addEventListener('pointerdown',e=>{e.preventDefault();b.setPointerCapture(e.pointerId);INPUT.x=d.x;INPUT.y=d.y;});
+    b.addEventListener('pointerup',e=>{e.preventDefault();INPUT.x=0;INPUT.y=0;});
+    b.addEventListener('pointercancel',()=>{INPUT.x=0;INPUT.y=0;});
+  });
+})();
+document.getElementById('abtn').addEventListener('pointerdown',e=>{e.preventDefault();doAction();});
+
+// ===== ゲーム状態 =====
+let G,frame=0,running=false,lastT=0,transitioning=false,puzzleOpen=false;
+let ptx=6,pty=5,ptmr=0;
+
+function init(){
+  G={
+    roomIdx:0,px:9,py:5,
+    ex:-1,ey:-1,exActive:false,exMode:'patrol',exWalk:0,alert:0,
+    inv:[],
+    roomItems:ROOMS.map(r=>JSON.parse(JSON.stringify(r.items))),
+    hiding:false,over:false,clear:false,
+    camX:0,camY:0,pdir:1,msgTimer:0,caughtEffect:0,
+  };
+  PUZZLE={bookOrder:[],safeUnlocked:false,cipherSolved:false,bookSolved:false};
+  spawnRoom(0,9,5,true,false);
+  updHUD();setMsg('');
+}
+
+function spawnRoom(idx,px,py,instant,wasChasing){
+  G.roomIdx=idx;G.px=px;G.py=py;
+  const room=ROOMS[idx];
+  G.hiding=false;
+  document.getElementById('roomName').textContent=room.name;
+  updateCamera(instant||false);
+  if(wasChasing){
+    G.exActive=false;G.ex=-1;G.ey=-1;G.exMode='chase';G.alert=80;
+    const delay=1000+Math.random()*1000;
+    setTimeout(()=>{
+      if(G.roomIdx!==idx)return;
+      const sp=getEnemySpawnPos(room,px,py);
+      G.ex=sp.x;G.ey=sp.y;G.exActive=true;ptx=room.w/2;pty=room.h/2;ptmr=0;
+    },delay);
+  }else if(room.enemyStart){
+    G.exActive=false;G.ex=-1;G.ey=-1;G.exMode='patrol';G.alert=0;
+    const delay=3000+Math.random()*2000;
+    setTimeout(()=>{
+      if(G.roomIdx!==idx)return;
+      const sp=getEnemySpawnPos(room,px,py);
+      G.ex=sp.x;G.ey=sp.y;G.exActive=true;G.exMode='patrol';ptx=room.w/2;pty=room.h/2;ptmr=0;
+    },delay);
+  }else{
+    G.exActive=false;G.ex=-1;G.ey=-1;G.exMode='patrol';G.alert=0;
+  }
+}
+
+function getEnemySpawnPos(room,playerX,playerY){
+  const exits=room.exits;
+  if(exits.length>1){
+    let far=null,maxD=0;
+    for(const ex of exits){
+      let ex2,ey2;
+      if(ex.side==='bottom'){ex2=(ex.x1+ex.x2)/2;ey2=room.h-1.5;}
+      else if(ex.side==='top'){ex2=(ex.x1+ex.x2)/2;ey2=1.5;}
+      else if(ex.side==='left'){ex2=1.5;ey2=(ex.y1+ex.y2)/2;}
+      else{ex2=room.w-1.5;ey2=(ex.y1+ex.y2)/2;}
+      const d=dst(playerX,playerY,ex2,ey2);
+      if(d>maxD){maxD=d;far={x:ex2,y:ey2};}
+    }
+    return far||{x:room.w-2,y:room.h-2};
+  }
+  return{x:room.w-2,y:room.h-2};
+}
+
+const PSPD=4.5;
+function loop(ts){
+  if(!running){requestAnimationFrame(loop);return;}
+  const dt=Math.min((ts-lastT)/1000,0.05);
+  lastT=ts;frame++;
+  if(!transitioning&&!puzzleOpen){
+    updateInput(dt);
+    updateEnemy(dt);
+    checkExits();
+    updateCamera(false);
+    if(G.msgTimer>0){G.msgTimer--;if(G.msgTimer<=0)setMsg('');}
+    updAlertHud();
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function updateInput(dt){
+  if(G.hiding||G.over||G.clear)return;
+  let ix=INPUT.x,iy=INPUT.y;
+  if(ix===0&&iy===0){
+    ix=(KEYS['ArrowRight']||KEYS['d']?1:0)-(KEYS['ArrowLeft']||KEYS['a']?1:0);
+    iy=(KEYS['ArrowDown']||KEYS['s']?1:0)-(KEYS['ArrowUp']||KEYS['w']?1:0);
+  }
+  const dx=ix*PSPD*dt,dy=iy*PSPD*dt;
+  if(dx!==0)G.pdir=dx>0?1:-1;
+  const room=ROOMS[G.roomIdx],m=0.28;
+  if(dx){const nx=G.px+dx,cx=dx>0?nx+m:nx-m;if(walkable(room,cx,G.py-m)&&walkable(room,cx,G.py+m))G.px=nx;}
+  if(dy){const ny=G.py+dy,cy=dy>0?ny+m:ny-m;if(walkable(room,G.px-m,cy)&&walkable(room,G.px+m,cy))G.py=ny;}
+}
+
+function updateEnemy(dt){
+  if(!G.exActive||G.over||G.clear)return;
+  const room=ROOMS[G.roomIdx];
+  const d=dst(G.px,G.py,G.ex,G.ey);
+  const hasLight=!!G.inv.find(i=>i.id==='light');
+  const sight=hasLight?7:4;
+  if(!G.hiding&&d<sight)G.alert=Math.min(100,G.alert+(d<2?80:d<3?45:20)*dt);
+  else G.alert=Math.max(0,G.alert-(G.hiding?15:18)*dt);
+  if(G.alert>50)G.exMode='chase';
+  else if(G.alert<15)G.exMode='patrol';
+  const spd=(G.exMode==='chase'?1.8:0.9)*dt;
+  G.exWalk+=spd*6;
+  if(G.exMode==='chase'){
+    const edx=G.px-G.ex,edy=G.py-G.ey,ed=Math.max(dst(0,0,edx,edy),0.01);
+    const nx=G.ex+edx/ed*spd,ny=G.ey+edy/ed*spd;
+    if(walkable(room,nx,G.ey))G.ex=nx;
+    if(walkable(room,G.ex,ny))G.ey=ny;
+  }else{
+    ptmr+=dt;
+    if(ptmr>3.5||dst(G.ex,G.ey,ptx,pty)<0.5){
+      ptmr=0;
+      for(let i=0;i<30;i++){
+        const rx=1+Math.floor(Math.random()*(room.w-2)),ry=1+Math.floor(Math.random()*(room.h-2));
+        if(walkable(room,rx,ry)){ptx=rx+0.5;pty=ry+0.5;break;}
+      }
+    }
+    const edx=ptx-G.ex,edy=pty-G.ey,ed=Math.max(dst(0,0,edx,edy),0.01);
+    const nx=G.ex+edx/ed*spd,ny=G.ey+edy/ed*spd;
+    if(walkable(room,nx,G.ey))G.ex=nx;
+    if(walkable(room,G.ex,ny))G.ey=ny;
+  }
+  if(d<0.6&&!G.hiding&&!G.over)triggerCaught();
+}
+
+function checkExits(){
+  if(G.hiding||G.over||G.clear||transitioning)return;
+  const room=ROOMS[G.roomIdx];
+  for(const ex of room.exits){
+    let hit=false;
+    if(ex.side==='bottom'&&G.py>room.h-1.3&&G.px>=ex.x1&&G.px<=ex.x2)hit=true;
+    if(ex.side==='top'&&G.py<1.3&&G.px>=ex.x1&&G.px<=ex.x2)hit=true;
+    if(ex.side==='left'&&G.px<1.3&&G.py>=ex.y1&&G.py<=ex.y2)hit=true;
+    if(ex.side==='right'&&G.px>room.w-1.3&&G.py>=ex.y1&&G.py<=ex.y2)hit=true;
+    if(hit){
+      if(ex.toRoom===-1){
+        const k=G.inv.filter(i=>i.id.startsWith('key')).length;
+        if(k>=3){G.clear=true;showOv('clear');}
+        else setMsg('鍵が足りない…\n('+k+'/3)');
+      }else{
+        changeRoom(ex.toRoom,ex.sx,ex.sy);
+      }
+      return;
+    }
+  }
+}
+
+function updateCamera(instant){
+  const cw=cv.width,ch=cv.height,room=ROOMS[G.roomIdx];
+  const tx=G.px*T-cw/2,ty=G.py*T-ch/2;
+  const cx=Math.max(0,Math.min(room.w*T-cw,tx));
+  const cy=Math.max(0,Math.min(room.h*T-ch,ty));
+  if(instant){G.camX=cx;G.camY=cy;}
+  else{G.camX+=(cx-G.camX)*0.18;G.camY+=(cy-G.camY)*0.18;}
+}
+
+// ===== アクション =====
+function doAction(){
+  if(!G||G.over||G.clear||transitioning||puzzleOpen)return;
+  if(G.hiding){G.hiding=false;setMsg('隠れ場所から出た。');return;}
+  const room=ROOMS[G.roomIdx];
+  const px=Math.floor(G.px),py=Math.floor(G.py);
+
+  // アイテム
+  const ri=G.roomItems[G.roomIdx];
+  for(let i=0;i<ri.length;i++){
+    const it=ri[i];
+    if(Math.abs(it.tx+0.5-G.px)<1.2&&Math.abs(it.ty+0.5-G.py)<1.2){
+      if(G.inv.length<3){
+        G.inv.push(it);ri.splice(i,1);updHUD();
+        const msgs={
+          diary:'日記帳を読んだ。\n「本棚の本を 赤→青→緑 の順に押せ。\n 寝室の金庫に数字の鍵がある。\n 隠し部屋の暗号は炎で読め。」',
+          letter:'古い手紙…\n「絵画に隠された数字が\n 金庫の暗証番号だ。\n 最後の1桁は1だ」',
+        };
+        setMsg(msgs[it.id]||('「'+it.n+'」を手に入れた！'));
+      }else setMsg('荷物がいっぱいだ…');
+      return;
+    }
+  }
+
+  // オブジェクト
+  if(room.objects){
+    for(const obj of room.objects){
+      if(Math.abs(obj.tx+0.5-G.px)<1.5&&Math.abs(obj.ty+0.5-G.py)<1.5){
+        handleObject(obj);
+        return;
+      }
+    }
+  }
+
+  // 隠れ場所
+  for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+    const t=tileAt(room,px+dx,py+dy);
+    if(t===LK||t===TL){
+      if(G.exActive&&dst(G.px,G.py,G.ex,G.ey)<2.5){
+        setMsg('見られている…\n逃げられない！',60);
+        setTimeout(()=>triggerCaught(),800);
+        return;
+      }
+      G.hiding=true;
+      setMsg((t===LK?'ロッカー':'机の下')+'に隠れた…\n息を殺して待つ…',999);
+      return;
+    }
+  }
+  setMsg('何もない…');
+}
+
+// ===== 謎解きハンドラー =====
+function handleObject(obj){
+  switch(obj.type){
+    case 'painting':
+      setMsg(obj.hint,240);
+      break;
+    case 'bookshelf':
+      openBookshelfPuzzle();
+      break;
+    case 'safe':
+      openSafePuzzle();
+      break;
+    case 'cipher':
+      openCipherPuzzle();
+      break;
+  }
+}
+
+// 本棚パズル
+function openBookshelfPuzzle(){
+  if(PUZZLE.bookSolved){setMsg('本棚の謎はすでに解いた。\n鍵を手に入れた。');return;}
+  puzzleOpen=true;
+  document.getElementById('puzzleTitle').textContent='📚 本棚の謎';
+  document.getElementById('puzzleDesc').textContent='日記帳のヒント通りに本を押せ。\n赤→青→緑 の順番だ。';
+  const colors=['赤','青','緑','黄','紫'];
+  let html='<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-bottom:8px;">';
+  colors.forEach(col=>{
+    const c={赤:'#cc2222',青:'#2244cc',緑:'#228822',黄:'#cc9922',紫:'#882288'}[col];
+    html+=`<button onclick="pushBook('${col}')" style="width:44px;height:60px;background:${c};border:2px solid #888;border-radius:4px;color:#fff;font-size:12px;cursor:pointer;">${col}</button>`;
+  });
+  html+='</div>';
+  html+='<div id="bookProgress" style="color:#888;font-size:12px;">押した順: </div>';
+  document.getElementById('puzzleContent').innerHTML=html;
+  document.getElementById('puzzleUI').style.display='flex';
+  updateBookProgress();
+}
+
+function pushBook(col){
+  PUZZLE.bookOrder.push(col);
+  updateBookProgress();
+  if(PUZZLE.bookOrder.length===3){
+    if(PUZZLE.bookOrder.join('')===BOOK_ORDER.join('')){
+      PUZZLE.bookSolved=true;
+      closePuzzle();
+      setTimeout(()=>{
+        // 書斎の本棚付近に鍵を出現させる
+        G.roomItems[2].push({tx:8,ty:3,e:'🗝️',n:'書斎の鍵',id:'key1'});
+        setMsg('本棚が動いた！\n鍵が現れた！',240);
+      },300);
+    }else{
+      setMsg('順番が違う…',120);
+      PUZZLE.bookOrder=[];
+      updateBookProgress();
+    }
+  }
+}
+
+function updateBookProgress(){
+  const el=document.getElementById('bookProgress');
+  if(el)el.textContent='押した順: '+PUZZLE.bookOrder.join('→');
+}
+
+// 金庫パズル
+let safeInput='';
+function openSafePuzzle(){
+  if(PUZZLE.safeUnlocked){setMsg('金庫はすでに開いている。\n鍵を手に入れた。');return;}
+  puzzleOpen=true;
+  safeInput='';
+  document.getElementById('puzzleTitle').textContent='🔒 金庫の暗証番号';
+  document.getElementById('puzzleDesc').textContent='玄関の絵画と手紙にヒントがある。\n4桁の番号を入力しろ。';
+  let html='<div id="safeDisplay" style="font-size:28px;letter-spacing:10px;color:#fff;background:#111;border:1px solid #555;padding:8px 16px;border-radius:4px;min-width:160px;text-align:center;margin-bottom:8px;">＿＿＿＿</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(3,44px);gap:6px;justify-content:center;">';
+  for(let i=1;i<=9;i++)html+=`<button onclick="safePush('${i}')" style="padding:10px;background:#1a1a1a;border:1px solid #555;color:#ccc;font-size:16px;border-radius:4px;cursor:pointer;">${i}</button>`;
+  html+=`<button onclick="safePush('0')" style="padding:10px;background:#1a1a1a;border:1px solid #555;color:#ccc;font-size:16px;border-radius:4px;cursor:pointer;grid-column:2;">0</button>`;
+  html+='</div>';
+  html+='<div style="display:flex;gap:8px;margin-top:8px;">';
+  html+=`<button onclick="safeDel()" style="padding:8px 14px;background:#1a1a1a;border:1px solid #555;color:#aaa;font-size:12px;border-radius:4px;cursor:pointer;">⌫</button>`;
+  html+=`<button onclick="safeConfirm()" style="padding:8px 20px;background:#1a3a1a;border:1px solid #4a8a4a;color:#8a8;font-size:12px;border-radius:4px;cursor:pointer;">確認</button>`;
+  html+='</div>';
+  document.getElementById('puzzleContent').innerHTML=html;
+  document.getElementById('puzzleUI').style.display='flex';
+}
+
+function safePush(n){
+  if(safeInput.length<4){safeInput+=n;updateSafeDisplay();}
+}
+function safeDel(){safeInput=safeInput.slice(0,-1);updateSafeDisplay();}
+function updateSafeDisplay(){
+  const el=document.getElementById('safeDisplay');
+  if(!el)return;
+  let txt='';
+  for(let i=0;i<4;i++)txt+=safeInput[i]||'＿';
+  el.textContent=txt;
+}
+function safeConfirm(){
+  if(safeInput===SECRET_CODE){
+    PUZZLE.safeUnlocked=true;
+    closePuzzle();
+    setTimeout(()=>{
+      G.roomItems[3].push({tx:6,ty:6,e:'🗝️',n:'金庫の鍵',id:'key2'});
+      setMsg('金庫が開いた！\n鍵が入っていた！',240);
+    },300);
+  }else{
+    const el=document.getElementById('safeDisplay');
+    if(el){el.style.color='#cc2222';setTimeout(()=>{el.style.color='#fff';},500);}
+    safeInput='';updateSafeDisplay();
+    setMsg('違う…');
+  }
+}
+
+// 暗号パズル
+function openCipherPuzzle(){
+  if(PUZZLE.cipherSolved){setMsg('暗号はすでに解読した。\n鍵を手に入れた。');return;}
+  const hasCandle=!!G.inv.find(i=>i.id==='candle');
+  if(!hasCandle){setMsg('何かで照らさないと\n読めない…',180);return;}
+  puzzleOpen=true;
+  document.getElementById('puzzleTitle').textContent='🕯️ 暗号板';
+  document.getElementById('puzzleDesc').textContent='ろうそくで照らすと文字が浮かび上がった。\n「南の壁を叩け」\n\n南の壁とは…？');
+  let html='<div style="color:#888;font-size:12px;text-align:center;line-height:2;">暗号：<span style="color:#e0c060">3・6・9・1</span><br>これは金庫の番号だ！<br><br>さらに奥の壁に何かある…</div>';
+  html+=`<button onclick="solveCipher()" style="padding:10px 24px;background:#1a2a1a;border:1px solid #4a8a4a;color:#8d8;font-size:13px;border-radius:4px;cursor:pointer;margin-top:8px;">南の壁を叩く</button>`;
+  document.getElementById('puzzleContent').innerHTML=html;
+  document.getElementById('puzzleUI').style.display='flex';
+}
+
+function solveCipher(){
+  PUZZLE.cipherSolved=true;
+  closePuzzle();
+  setTimeout(()=>{
+    G.roomItems[5].push({tx:9,ty:6,e:'🗝️',n:'隠し部屋の鍵',id:'key3'});
+    setMsg('壁の裏に隠し棚があった！\n鍵が隠されていた！',240);
+  },300);
+}
+
+function closePuzzle(){
+  document.getElementById('puzzleUI').style.display='none';
+  puzzleOpen=false;
+  PUZZLE.bookOrder=PUZZLE.bookOrder; // リセットしない
+}
+
+function changeRoom(to,sx,sy){
+  if(transitioning)return;
+  transitioning=true;
+  const wasChasing=G.exMode==='chase';
+  const fade=document.getElementById('fade');
+  fade.style.opacity='1';
+  setTimeout(()=>{
+    spawnRoom(to,sx,sy,true,wasChasing);
+    setTimeout(()=>{fade.style.opacity='0';transitioning=false;},320);
+  },320);
+}
+
+function triggerCaught(){
+  if(G.over)return;
+  G.over=true;G.caughtEffect=0;
+  setTimeout(()=>showOv('over'),1800);
+}
+
+function showOv(type){
+  const ov=document.getElementById('ov');
+  ov.innerHTML=type==='over'
+    ?'<h1>捕まった…</h1><p style="font-size:11px;color:#888">あいつに見つかってしまった…<br>もう逃げられない…</p><button onclick="restart()">もう一度</button>'
+    :'<h2>脱出成功！</h2><p>3つの鍵で扉を開け脱出した！</p><button onclick="restart()">もう一度</button>';
+  ov.style.display='flex';
+}
+function restart(){init();document.getElementById('ov').style.display='none';}
+function setMsg(t,d=180){const el=document.getElementById('msg');if(!t){el.style.display='none';return;}el.textContent=t;el.style.display='block';G.msgTimer=d;}
+function updHUD(){for(let i=0;i<3;i++){const s=document.getElementById('s'+i);if(s)s.textContent=G.inv[i]?G.inv[i].e:' ';}}
+function updAlertHud(){
+  const al=Math.floor(G.alert);
+  let txt='🗝️ '+G.inv.filter(i=>i.id.startsWith('key')).length+'/3';
+  if(G.exMode==='chase')txt='⚠ 見つかった！';
+  else if(al>25)txt='👁 気配を感じる…';
+  document.getElementById('alertTxt').textContent=txt;
+}
+
+function resize(){
+  const isP=window.innerHeight>window.innerWidth;
+  cv.width=isP?window.innerHeight:window.innerWidth;
+  cv.height=isP?window.innerWidth:window.innerHeight;
+}
+window.addEventListener('resize',()=>{resize();if(G)updateCamera(true);});
+resize();
+
+// ===== タイルキャッシュ =====
+let TC=null;
+function buildTC(){
+  const oc=document.createElement('canvas');
+  oc.width=T*10;oc.height=T;
+  const c=oc.getContext('2d');
+  // 床
+  c.fillStyle='#1e1b18';c.fillRect(0,0,T,T);
+  c.fillStyle='#171411';c.fillRect(0,0,T,1);c.fillRect(0,0,1,T);
+  c.fillStyle='#232018';c.fillRect(3,3,T/2-5,T/2-5);c.fillRect(T/2+2,T/2+2,T/2-5,T/2-5);
+  c.fillStyle='#191714';c.fillRect(T/2+2,3,T/2-5,T/2-5);c.fillRect(3,T/2+2,T/2-5,T/2-5);
+  // 壁
+  c.fillStyle='#111';c.fillRect(T,0,T,T);
+  c.fillStyle='#1c1916';for(let y=0;y<T;y+=8)c.fillRect(T,y,T,1);
+  for(let r=0;r<5;r++){const o=(r%2)*13;[0,13,26].forEach(x=>c.fillRect(T+o+x,r*8,1,8));}
+  c.fillStyle='#222018';c.fillRect(T,0,T,2);
+  // 扉
+  c.fillStyle='#1e1b18';c.fillRect(T*2,0,T,T);
+  c.fillStyle='#3d2210';c.fillRect(T*2+4,0,T-8,T);
+  c.fillStyle='#4e2c14';c.fillRect(T*2+6,2,T-12,T-2);
+  c.fillStyle='#3a1e0c';c.fillRect(T*2+6,2,2,T-4);c.fillRect(T*2+T/2-1,2,2,T-4);c.fillRect(T*2+T-9,2,2,T-4);
+  c.fillStyle='#c8a030';c.beginPath();c.arc(T*2+T-11,T/2,3,0,Math.PI*2);c.fill();
+  // ロッカー
+  c.fillStyle='#1e1b18';c.fillRect(T*3,0,T,T);
+  c.fillStyle='#1e2238';c.fillRect(T*3+3,0,T-6,T);
+  c.fillStyle='#141828';c.fillRect(T*3+T/2-1,1,2,T-2);
+  c.fillStyle='#282c4a';c.fillRect(T*3+3,0,T-6,5);
+  c.fillStyle='#7a9cbd';c.fillRect(T*3+T/2-7,T/2-3,4,5);c.fillRect(T*3+T/2+3,T/2-3,4,5);
+  // 出口
+  c.fillStyle='#081408';c.fillRect(T*4,0,T,T);
+  c.fillStyle='#14461a';c.fillRect(T*4+5,0,T-10,T);
+  c.fillStyle='#1a5c22';c.fillRect(T*4+7,2,T-14,T-2);
+  c.fillStyle='#44ff66';c.font='bold 7px monospace';c.textAlign='center';c.fillText('EXIT',T*4+T/2,T/2+3);
+  // テーブル
+  c.fillStyle='#1e1b18';c.fillRect(T*5,0,T,T);
+  c.fillStyle='#3a1e08';c.fillRect(T*5+2,2,T-4,T-4);
+  c.fillStyle='#4a2a0e';c.fillRect(T*5+4,4,T-8,T-8);
+  c.fillStyle='#5a3816';c.fillRect(T*5+6,6,T-12,T-12);
+  // 絵画(PT)
+  c.fillStyle='#1e1b18';c.fillRect(T*6,0,T,T);
+  c.fillStyle='#3a2800';c.fillRect(T*6+4,2,T-8,T-4);
+  c.fillStyle='#c8a030';c.fillRect(T*6+4,2,T-8,3);c.fillRect(T*6+4,2,3,T-4);c.fillRect(T*6+T-7,2,3,T-4);c.fillRect(T*6+4,T-5,T-8,3);
+  c.fillStyle='#554422';c.fillRect(T*6+7,5,T-14,T-10);
+  c.fillStyle='#886644';c.fillRect(T*6+9,7,T-18,T-14);
+  // 本棚(BK)
+  c.fillStyle='#1e1b18';c.fillRect(T*7,0,T,T);
+  c.fillStyle='#2a1a08';c.fillRect(T*7+2,0,T-4,T);
+  c.fillStyle='#3a2510';c.fillRect(T*7+2,0,T-4,3);c.fillRect(T*7+2,T/2-1,T-4,2);
+  const bColors=['#8B2020','#20528B','#1a6b1a','#8B6820','#5a1a8B','#8B5020'];
+  for(let i=0;i<6;i++){c.fillStyle=bColors[i];c.fillRect(T*7+4+i*5,3,4,T/2-5);}
+  for(let i=0;i<5;i++){c.fillStyle=bColors[(i+2)%6];c.fillRect(T*7+4+i*6,T/2+2,4,T/2-4);}
+  TC=oc;
+}
+
+function getTX(t){
+  if(t===W)return T;
+  if(t===DR||t===DL||t===DU||t===DD)return T*2;
+  if(t===LK)return T*3;
+  if(t===EX)return T*4;
+  if(t===TL)return T*5;
+  if(t===PT)return T*6;
+  if(t===BK)return T*7;
+  return 0;
+}
+
+function draw(){
+  if(!TC)buildTC();
+  const cw=cv.width,ch=cv.height;
+  ctx.fillStyle='#000';ctx.fillRect(0,0,cw,ch);
+  ctx.save();
+  ctx.translate(-Math.round(G.camX),-Math.round(G.camY));
+  const room=ROOMS[G.roomIdx];
+  for(let ty=0;ty<room.h;ty++)for(let tx=0;tx<room.w;tx++){
+    ctx.drawImage(TC,getTX(room.map[ty][tx]),0,T,T,tx*T,ty*T,T,T);
+  }
+  // 出口矢印
+  room.exits.forEach(ex=>{
+    ctx.fillStyle=ex.toRoom===-1?'rgba(80,255,100,0.85)':'rgba(220,200,80,0.75)';
+    ctx.font='bold 13px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
+    const arrows={bottom:'▼',top:'▲',left:'◀',right:'▶'};
+    let lx,ly;
+    if(ex.side==='bottom'){lx=((ex.x1+ex.x2)/2)*T;ly=(room.h-0.65)*T;}
+    else if(ex.side==='top'){lx=((ex.x1+ex.x2)/2)*T;ly=0.65*T;}
+    else if(ex.side==='left'){lx=0.65*T;ly=((ex.y1+ex.y2)/2)*T;}
+    else{lx=(room.w-0.65)*T;ly=((ex.y1+ex.y2)/2)*T;}
+    ctx.fillText(arrows[ex.side],lx,ly);
+  });
+  // アイテム
+  G.roomItems[G.roomIdx].forEach(it=>{
+    ctx.save();ctx.globalAlpha=0.78+Math.sin(frame*0.1)*0.22;
+    ctx.font='22px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(it.e,(it.tx+0.5)*T,(it.ty+0.5)*T);
+    ctx.restore();
+  });
+  // オブジェクトインジケーター
+  if(room.objects){
+    room.objects.forEach(obj=>{
+      const d=dst(G.px,G.py,obj.tx+0.5,obj.ty+0.5);
+      if(d<2.5){
+        const glow=0.6+Math.sin(frame*0.15)*0.4;
+        ctx.save();ctx.globalAlpha=glow;
+        ctx.fillStyle='#c8a030';ctx.font='bold 10px monospace';
+        ctx.textAlign='center';ctx.textBaseline='top';
+        ctx.fillText('調べる',(obj.tx+0.5)*T,obj.ty*T-12);
+        ctx.restore();
+      }
+    });
+  }
+  drawEnemy();drawPlayer();
+  ctx.restore();
+  // アラート
+  if(G.exMode==='chase'&&G.alert>50){
+    const a=(G.alert-50)/50*0.2*(Math.sin(frame*0.3)*0.5+0.5);
+    ctx.fillStyle='rgba(150,0,0,'+a+')';ctx.fillRect(0,0,cw,ch);
+  }
+  // 捕捉演出
+  if(G.over&&G.caughtEffect<1){
+    G.caughtEffect=Math.min(1,G.caughtEffect+0.018);
+    const shake=G.caughtEffect<0.5?(Math.random()-0.5)*14*G.caughtEffect*2:0;
+    ctx.save();ctx.translate(shake,shake*0.5);
+    ctx.fillStyle='rgba(180,0,0,'+G.caughtEffect*0.85+')';ctx.fillRect(-10,-10,cw+20,ch+20);
+    if(G.caughtEffect>0.3){
+      const alpha=Math.min(1,(G.caughtEffect-0.3)/0.3);
+      ctx.fillStyle='rgba(255,255,255,'+alpha+')';
+      ctx.font='bold '+Math.floor(cw*0.25)+'px monospace';
+      ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('！',cw/2,ch/2);
+    }
+    ctx.restore();
+  }
+}
+
+function drawPlayer(){
+  const ppx=G.px*T,ppy=G.py*T;
+  if(G.hiding){ctx.globalAlpha=0.3;ctx.fillStyle='#5566aa';ctx.fillRect(ppx-8,ppy-14,16,18);ctx.globalAlpha=1;return;}
+  ctx.fillStyle='rgba(0,0,0,0.4)';ctx.beginPath();ctx.ellipse(ppx,ppy+12,10,3,0,0,Math.PI*2);ctx.fill();
+  const lg=Math.sin(frame*0.32)*3;
+  ctx.fillStyle='#3d4d5e';ctx.fillRect(ppx-7,ppy+1,6,11+lg);ctx.fillRect(ppx+1,ppy+1,6,11-lg);
+  ctx.fillStyle='#1a1a1a';ctx.fillRect(ppx-8,ppy+10+lg,9,5);ctx.fillRect(ppx,ppy+10-lg,9,5);
+  ctx.fillStyle='#5d7080';ctx.fillRect(ppx-10,ppy-15,20,18);
+  ctx.fillStyle='#3d5060';ctx.fillRect(ppx-10,ppy-15,20,5);
+  ctx.fillStyle='#eebb99';ctx.fillRect(ppx-4,ppy-19,8,6);
+  ctx.fillStyle='#ffcc99';ctx.fillRect(ppx-9,ppy-31,18,14);
+  ctx.fillStyle='#332200';ctx.fillRect(ppx-9,ppy-31,18,5);ctx.fillRect(ppx-9,ppy-31,3,10);
+  ctx.fillStyle='#111';ctx.fillRect(ppx+G.pdir*3-3,ppy-24,4,4);
+  ctx.fillStyle='#eee';ctx.fillRect(ppx+G.pdir*3-2,ppy-23,2,2);
+}
+
+function drawEnemy(){
+  if(!G.exActive)return;
+  const epx=G.ex*T,epy=G.ey*T;
+  const isC=G.exMode==='chase';
+  ctx.save();ctx.translate(epx,epy);
+  ctx.fillStyle='rgba(10,0,30,0.5)';ctx.beginPath();ctx.ellipse(0,16,14,5,0,0,Math.PI*2);ctx.fill();
+  const lg=Math.sin(G.exWalk)*5;
+  ctx.fillStyle='#1a2090';ctx.fillRect(-9,3,8,14+lg);ctx.fillRect(1,3,8,14-lg);
+  ctx.fillStyle='#0a0a0a';ctx.fillRect(-10,15+lg,10,5);ctx.fillRect(0,15-lg,10,5);
+  ctx.fillStyle=isC?'#2233dd':'#1a2090';ctx.fillRect(-13,-17,26,24);
+  ctx.fillStyle=isC?'#3344ff':'#2230aa';ctx.fillRect(-13,-17,26,5);
+  const aw=Math.sin(G.exWalk)*4;
+  ctx.fillStyle='#1a2090';ctx.fillRect(-20,-15,8,18+aw);ctx.fillRect(12,-15,8,18-aw);
+  ctx.fillStyle='#2244cc';ctx.fillRect(-13,-35,26,20);
+  ctx.fillStyle='#3355dd';ctx.fillRect(-13,-35,26,4);
+  ctx.fillStyle='#4466ff';
+  ctx.beginPath();ctx.moveTo(-8,-34);ctx.lineTo(-12,-50);ctx.lineTo(-3,-34);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(8,-34);ctx.lineTo(12,-50);ctx.lineTo(3,-34);ctx.closePath();ctx.fill();
+  const eg=0.7+Math.sin(frame*0.15)*0.3;
+  ctx.fillStyle='#0a0a0a';ctx.fillRect(-11,-27,10,7);ctx.fillRect(1,-27,10,7);
+  ctx.fillStyle='rgba(255,'+(isC?'0':'30')+',0,'+eg+')';
+  ctx.fillRect(-10,-26,8,5);ctx.fillRect(2,-26,8,5);
+  if(isC){ctx.fillStyle='#050505';ctx.fillRect(-5,-19,10,5);}
+  ctx.restore();
+}
+
+document.getElementById('startBtn').addEventListener('click',()=>{
+  document.getElementById('ov').style.display='none';
+  init();running=true;lastT=performance.now();
+  requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>
